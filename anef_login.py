@@ -184,159 +184,156 @@ class ANEFConnector:
                 submitButton.click();
                 
                 console.log('✅ Formulaire soumis!');
-                
-                // Attendre la redirection et le chargement complet (15 secondes pour être sûr)
-                await new Promise(resolve => setTimeout(resolve, 15000));
-                
-                console.log('✅ Redirection effectuée');
-                
-                // Capturer l'URL finale et l'injecter dans le DOM
-                const finalUrl = window.location.href;
-                const urlDiv = document.createElement('div');
-                urlDiv.id = 'final-url-after-login';
-                urlDiv.setAttribute('data-final-url', finalUrl);
-                urlDiv.textContent = finalUrl;
-                urlDiv.style.display = 'none';
-                document.body.appendChild(urlDiv);
-                
-                console.log('📍 URL finale capturée:', finalUrl);
-                
-                // Retourner l'URL pour s'assurer qu'elle est disponible
-                return finalUrl;
+
+                // Attendre juste assez pour que la soumission soit envoyée
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                console.log('✅ Formulaire soumis, en attente de redirection...');
+                return 'submitted';
                 
             }} catch (error) {{
                 console.error('❌ Erreur:', error.message);
             }}
             """
             
+            # Étape 1 : Naviguer vers la page SSO et soumettre le formulaire
             login_config = CrawlerRunConfig(
                 session_id=session_id,
-                page_timeout=45000,  # 45 secondes pour laisser le temps au JS de s'exécuter (15s d'attente + marge)
+                page_timeout=20000,
                 js_code=login_js,
-                screenshot=False,  # Désactivé pour accélérer le traitement
+                screenshot=False,
                 remove_overlay_elements=False,
-                js_only=True  # Forcer l'exécution complète du JS avant de retourner
+                # js_only=False (défaut) : navigation complète vers l'URL SSO
             )
-            
+
             result = await crawler.arun(
-                url=self.login_url,  # URL directe de login SSO
+                url=self.login_url,
                 config=login_config
             )
-            
-            # Extraire l'URL finale depuis le HTML (élément créé par le JS dans le login)
+
+            print(f"📍 Étape 1 terminée (soumission formulaire)")
+
             import re
-            actual_url = result.url  # Par défaut
-            
-            # Chercher l'élément créé par le JS avec l'URL finale
-            if 'data-final-url="' in result.html:
-                url_match = re.search(r'data-final-url="([^"]+)"', result.html)
-                if url_match:
-                    actual_url = url_match.group(1)
-                    print(f"📍 URL extraite du DOM: {actual_url}")
-            elif 'id="final-url-after-login"' in result.html:
-                # Chercher dans le textContent de l'élément
-                url_match = re.search(r'<div[^>]*id="final-url-after-login"[^>]*>([^<]+)</div>', result.html)
-                if url_match:
-                    actual_url = url_match.group(1).strip()
-                    print(f"📍 URL extraite du textContent: {actual_url}")
-            
-            # Vérifier aussi dans le HTML si on trouve UPDATE_PASSWORD
-            if "UPDATE_PASSWORD" in result.html or "required-action" in result.html or "Réinitialisez votre mot de passe" in result.html:
-                print("🔍 Détection UPDATE_PASSWORD dans le HTML")
-                # Chercher l'URL dans le HTML (attribut action du formulaire)
-                action_match = re.search(r'action="([^"]*UPDATE_PASSWORD[^"]*)"', result.html)
-                if action_match:
-                    actual_url = action_match.group(1).replace('&amp;', '&')
-                    print(f"📍 URL UPDATE_PASSWORD extraite du formulaire: {actual_url}")
-            
-            final_result = result
-            
-            # Analyser le résultat
+
+            # Vérifier si UPDATE_PASSWORD est déjà visible après la soumission
+            if "UPDATE_PASSWORD" in (result.html or "") or "required-action" in (result.html or "") or "Réinitialisez votre mot de passe" in (result.html or ""):
+                print("🔍 Détection UPDATE_PASSWORD après soumission")
+                final_html = result.html
+                login_success = False
+                is_update_password = True
+            else:
+                # Étape 2 : Naviguer vers le dashboard dans la même session
+                # Si le login a réussi, les cookies sont en place et on arrivera sur le dashboard
+                # Sinon, on sera redirigé vers le SSO
+                print("🔄 Étape 2: Navigation vers le dashboard...")
+
+                dashboard_config = CrawlerRunConfig(
+                    session_id=session_id,
+                    page_timeout=30000,
+                    screenshot=False,
+                    remove_overlay_elements=False,
+                    delay_before_return_html=3.0,  # Attendre 3s que la SPA se charge
+                )
+
+                dashboard_result = await crawler.arun(
+                    url=self.home_url,
+                    config=dashboard_config
+                )
+
+                final_html = dashboard_result.html or ""
+                is_update_password = False
+
+                # Déterminer si on est sur le dashboard en analysant le contenu HTML
+                html_lower = final_html.lower()
+
+                # Indicateurs positifs : éléments du dashboard ANEF (pas les notifications, qui sont optionnelles)
+                dashboard_indicators = [
+                    "fa-bell",  # icône cloche (toujours présente sur le dashboard)
+                    "tableau-de-bord", "tableau de bord",  # titre dashboard
+                    "mes-dossiers", "mes dossiers",  # section dossiers
+                    "déconnexion", "deconnexion", "logout",  # bouton déconnexion
+                    "notification-table",  # tableau des notifications
+                ]
+
+                # Indicateurs négatifs : on est encore sur la page de login SSO
+                login_indicators = [
+                    'name="username"', 'name="password"', 'type="submit"',
+                    "kc-login", "kc-form-login",  # classes Keycloak SSO
+                ]
+
+                has_dashboard = any(ind in html_lower for ind in dashboard_indicators)
+                has_login_form = any(ind in html_lower for ind in login_indicators)
+
+                login_success = has_dashboard and not has_login_form
+
+                if login_success:
+                    print(f"✅ Dashboard détecté via contenu HTML")
+                elif has_login_form:
+                    print(f"❌ Page de login SSO encore présente (login échoué)")
+                else:
+                    print(f"⚠️ Page non identifiée, HTML length={len(final_html)}")
+
+                # Vérifier aussi UPDATE_PASSWORD dans le HTML du dashboard
+                if "UPDATE_PASSWORD" in final_html or "required-action" in final_html or "Réinitialisez votre mot de passe" in final_html:
+                    print("🔍 Détection UPDATE_PASSWORD dans le HTML")
+                    is_update_password = True
+                    login_success = False
+
+            # Construire la réponse
             response = {
                 "success": False,
                 "username": username,
-                "url": actual_url,
+                "url": self.home_url if login_success else self.login_url,
                 "session_id": session_id,
-                "screenshot": final_result.screenshot,
+                "screenshot": None,
                 "message": "",
                 "crawler": crawler if self.keep_browser_open else None
             }
-            
-            # Vérifier si la connexion a réussi en se basant sur l'URL réelle
-            # URL de succès: https://administration-etrangers-en-france.interieur.gouv.fr/particuliers/#/
-            print(f"📍 URL finale: {actual_url}")
-            
-            # Vérifier d'abord si on demande une mise à jour du mot de passe
-            if "UPDATE_PASSWORD" in actual_url:
+
+            if is_update_password:
                 response["success"] = False
                 response["notifications"] = "UPDATE_PASSWORD"
                 response["message"] = "⚠️ Mise à jour du mot de passe requise"
                 print(f"⚠️ UPDATE_PASSWORD requis pour {username}")
-            elif "particuliers/#/" in actual_url or "particuliers/#&" in actual_url:
-                # On a bien atteint la page du dashboard
+            elif login_success:
                 response["success"] = True
                 response["message"] = "✅ Connexion réussie!"
                 print(f"✅ Connexion réussie pour {username}")
-                
-                # Vérifier les notifications en cherchant le texte spécifique
-                try:
-                    # Attendre que la section des notifications se charge
-                    await asyncio.sleep(2)
-                    
-                    # Récupérer le HTML pour vérifier les notifications
-                    notif_check_config = CrawlerRunConfig(
-                        session_id=session_id,
-                        page_timeout=5000,
-                        screenshot=False
-                    )
-                    
-                    notif_result = await crawler.arun(
-                        url=final_result.url,
-                        config=notif_check_config
-                    )
-                    
-                    # Par défaut, pas de notifications
-                    response["notifications"] = "NON"
-                    response["type_notification"] = ""
-                    
-                    # Chercher les classes spécifiques qui indiquent des notifications
-                    html_content = notif_result.html
-                    
-                    # Indicateurs de notifications non lues :
-                    # - "nbr-notif-single" : compteur de notifications
-                    # - "ui-msg-not-read" : message non lu
-                    # - "ui-icon-not-read" : icône de message non lu
-                    if "nbr-notif-single" in html_content or "ui-msg-not-read" in html_content or "ui-icon-not-read" in html_content:
+
+                # Vérifier les notifications dans le tableau notification-table
+                response["notifications"] = "NON"
+                response["type_notification"] = ""
+
+                # Extraire le contenu du tableau notification-table
+                table_match = re.search(
+                    r'<table[^>]*class="notification-table[^"]*"[^>]*>(.*?)</table>',
+                    final_html, re.DOTALL | re.IGNORECASE
+                )
+
+                if table_match:
+                    table_html = table_match.group(1)
+                    # Chercher les lignes avec ui-icon-not-read (enveloppe non lue)
+                    if "ui-icon-not-read" in table_html or "ui-msg-not-read" in table_html:
                         response["notifications"] = "OUI"
-                        
-                        # Extraire le type de notification depuis le HTML
-                        import re
-                        # Chercher le texte dans <span class="ui-msg-not-read">
+
+                        # Extraire le type de notification depuis <span class="ui-msg-not-read">
                         notif_pattern = r'<span[^>]*class="ui-msg-not-read"[^>]*>\s*(.*?)\s*</span>'
-                        matches = re.findall(notif_pattern, html_content, re.DOTALL | re.IGNORECASE)
+                        matches = re.findall(notif_pattern, table_html, re.DOTALL | re.IGNORECASE)
                         if matches:
-                            # Nettoyer le texte (enlever les espaces multiples et retours à la ligne)
-                            notif_types = [re.sub(r'\s+', ' ', match.strip()) for match in matches if match.strip()]
-                            # Prendre la première notification (ou joindre toutes si plusieurs)
+                            notif_types = [re.sub(r'\s+', ' ', m.strip()) for m in matches if m.strip()]
                             response["type_notification"] = notif_types[0] if notif_types else ""
-                    
-                    print(f"🔔 Notifications: {response['notifications']}")
-                    if response["type_notification"]:
-                        print(f"   Type: {response['type_notification']}")
-                        
-                except Exception as e:
-                    response["notifications"] = "ERREUR"
-                    print(f"⚠️ Erreur vérification notifications: {e}")
+
+                print(f"🔔 Notifications: {response['notifications']}")
+                if response.get("type_notification"):
+                    print(f"   Type: {response['type_notification']}")
             else:
-                # Pas de fa-bell = échec
                 response["success"] = False
                 response["notifications"] = "N/A"
-                
-                # Déterminer le type d'échec
-                if "error" in final_result.html.lower() or "erreur" in final_result.html.lower():
+
+                if "error" in final_html.lower() or "erreur" in final_html.lower():
                     response["message"] = "❌ Erreur de connexion - Identifiants incorrects"
                     print(f"❌ Identifiants incorrects pour {username}")
-                elif "maintenance" in final_result.html.lower():
+                elif "maintenance" in final_html.lower():
                     response["message"] = "❌ Page de maintenance - Site indisponible"
                     print(f"❌ Page de maintenance pour {username}")
                 else:
