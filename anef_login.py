@@ -1,0 +1,609 @@
+# -*- coding: utf-8 -*-
+import asyncio
+import json
+import sys
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+from typing import Optional, Dict
+import pandas as pd
+import requests
+
+# Configurer l'encodage UTF-8 pour la console Windows
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+# URL du webhook
+WEBHOOK_URL = "https://n8n.wesype.com/webhook-test/4b437fa0-b785-4ccb-9621-e3c52984dd2e"
+
+def send_webhook_notification(client_name: str, username: str, email: str, mobile: str, case: str, notification_type: str = ""):
+    """
+    Envoie une notification webhook pour chaque compte traité.
+    
+    Args:
+        client_name: Nom du client
+        username: Identifiant ANEF
+        email: Adresse email
+        mobile: Numéro de téléphone
+        case: Type de cas ("Aucune notification", "Nouvelle notification", "Identifiants incorrects")
+        notification_type: Type de notification si applicable
+    """
+    try:
+        payload = {
+            "client_name": client_name,
+            "username": username,
+            "email": email,
+            "mobile": mobile,
+            "case": case,
+            "notification_type": notification_type
+        }
+        
+        response = requests.post(WEBHOOK_URL, json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            print(f"  📤 Webhook envoyé: {case}")
+        else:
+            print(f"  ⚠️ Webhook erreur {response.status_code}")
+            
+    except Exception as e:
+        print(f"  ❌ Erreur webhook: {e}")
+
+class ANEFConnector:
+    """
+    Connecteur pour la plateforme ANEF utilisant Crawl4AI.
+    """
+    
+    def __init__(self, headless: bool = True, keep_browser_open: bool = False):
+        """
+        Initialise le connecteur ANEF.
+        
+        Args:
+            headless: Si True, le navigateur s'exécute en mode invisible
+            keep_browser_open: Si True, garde le navigateur ouvert après connexion
+        """
+        self.home_url = "https://administration-etrangers-en-france.interieur.gouv.fr/particuliers/#/"
+        self.login_url = "https://sso.anef.dgef.interieur.gouv.fr/auth/realms/anef-usagers/protocol/openid-connect/auth?client_id=anef-usagers&theme=portail-anef&redirect_uri=https%3A%2F%2Fadministration-etrangers-en-france.interieur.gouv.fr%2Fparticuliers%2F%23&response_mode=fragment&response_type=code&scope=openid"
+        self.headless = headless
+        self.keep_browser_open = keep_browser_open
+        
+    async def login(self, username: str, password: str, session_id: str = "anef_session") -> Dict:
+        """
+        Se connecte à la plateforme ANEF avec les identifiants fournis.
+        
+        Args:
+            username: Identifiant ANEF
+            password: Mot de passe ANEF
+            session_id: ID de session pour maintenir la connexion
+            
+        Returns:
+            Dict contenant le résultat de la connexion
+        """
+        browser_config = BrowserConfig(
+            headless=self.headless,
+            viewport_width=1920,
+            viewport_height=1080,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Cache-Control": "max-age=0"
+            },
+            extra_args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox"
+            ]
+        )
+        
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            print(f"🔐 Accès direct à la page de connexion SSO...")
+            
+            # JavaScript pour masquer l'automatisation et remplir le formulaire
+            login_js = f"""
+            // Masquer les traces d'automatisation
+            Object.defineProperty(navigator, 'webdriver', {{
+                get: () => undefined
+            }});
+            
+            // Ajouter des propriétés manquantes pour ressembler à un vrai navigateur
+            window.chrome = {{
+                runtime: {{}}
+            }};
+            
+            Object.defineProperty(navigator, 'plugins', {{
+                get: () => [1, 2, 3, 4, 5]
+            }});
+            
+            Object.defineProperty(navigator, 'languages', {{
+                get: () => ['fr-FR', 'fr', 'en-US', 'en']
+            }});
+            
+            const waitForElement = (selector, timeout = 10000) => {{
+                return new Promise((resolve, reject) => {{
+                    const startTime = Date.now();
+                    const checkElement = () => {{
+                        const element = document.querySelector(selector);
+                        if (element) {{
+                            resolve(element);
+                        }} else if (Date.now() - startTime > timeout) {{
+                            reject(new Error(`Element ${{selector}} not found`));
+                        }} else {{
+                            setTimeout(checkElement, 100);
+                        }}
+                    }};
+                    checkElement();
+                }});
+            }};
+            
+            try {{
+                console.log('🔍 Recherche des champs du formulaire...');
+                
+                // Attendre les champs du formulaire
+                const usernameField = await waitForElement('input[name="username"]');
+                const passwordField = await waitForElement('input[name="password"]');
+                const submitButton = await waitForElement('button[type="submit"]');
+                
+                console.log('✅ Champs trouvés');
+                
+                // Simuler une saisie humaine avec délais
+                await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 200));
+                
+                // Remplir le champ username caractère par caractère (simulation)
+                usernameField.focus();
+                usernameField.value = '{username}';
+                usernameField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                usernameField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                
+                console.log('✅ Identifiant: {username}');
+                
+                // Délai entre les champs
+                await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 300));
+                
+                // Remplir le champ password
+                passwordField.focus();
+                passwordField.value = '{password}';
+                passwordField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                passwordField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                
+                console.log('✅ Mot de passe: ***');
+                
+                // Attendre avant de soumettre (comme un humain qui vérifie)
+                await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
+                
+                console.log('🚀 Soumission du formulaire...');
+                
+                // Soumettre
+                submitButton.click();
+                
+                console.log('✅ Formulaire soumis!');
+                
+                // Attendre la redirection et le chargement complet (10 secondes)
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                
+                console.log('✅ Redirection effectuée');
+                
+                // Capturer l'URL finale et l'injecter dans le DOM
+                const finalUrl = window.location.href;
+                const urlDiv = document.createElement('div');
+                urlDiv.id = 'final-url-after-login';
+                urlDiv.setAttribute('data-final-url', finalUrl);
+                urlDiv.textContent = finalUrl;
+                urlDiv.style.display = 'none';
+                document.body.appendChild(urlDiv);
+                
+                console.log('📍 URL finale capturée:', finalUrl);
+                
+            }} catch (error) {{
+                console.error('❌ Erreur:', error.message);
+            }}
+            """
+            
+            login_config = CrawlerRunConfig(
+                session_id=session_id,
+                page_timeout=30000,  # Augmenté à 30 secondes pour laisser le temps de charger
+                js_code=login_js,
+                screenshot=False,  # Désactivé pour accélérer le traitement
+                remove_overlay_elements=False
+                # Pas de wait_for - on laisse le JS s'exécuter et on capture le résultat
+            )
+            
+            result = await crawler.arun(
+                url=self.login_url,  # URL directe de login SSO
+                config=login_config
+            )
+            
+            # Extraire l'URL finale depuis le HTML (élément créé par le JS dans le login)
+            import re
+            actual_url = result.url  # Par défaut
+            
+            # Chercher l'élément créé par le JS avec l'URL finale
+            if 'data-final-url="' in result.html:
+                url_match = re.search(r'data-final-url="([^"]+)"', result.html)
+                if url_match:
+                    actual_url = url_match.group(1)
+                    print(f"📍 URL extraite du DOM: {actual_url}")
+            elif 'id="final-url-after-login"' in result.html:
+                # Chercher dans le textContent de l'élément
+                url_match = re.search(r'<div[^>]*id="final-url-after-login"[^>]*>([^<]+)</div>', result.html)
+                if url_match:
+                    actual_url = url_match.group(1).strip()
+                    print(f"📍 URL extraite du textContent: {actual_url}")
+            
+            # Vérifier aussi dans le HTML si on trouve UPDATE_PASSWORD
+            if "UPDATE_PASSWORD" in result.html or "required-action" in result.html or "Réinitialisez votre mot de passe" in result.html:
+                print("🔍 Détection UPDATE_PASSWORD dans le HTML")
+                # Chercher l'URL dans le HTML (attribut action du formulaire)
+                action_match = re.search(r'action="([^"]*UPDATE_PASSWORD[^"]*)"', result.html)
+                if action_match:
+                    actual_url = action_match.group(1).replace('&amp;', '&')
+                    print(f"📍 URL UPDATE_PASSWORD extraite du formulaire: {actual_url}")
+            
+            final_result = result
+            
+            # Analyser le résultat
+            response = {
+                "success": False,
+                "username": username,
+                "url": actual_url,
+                "session_id": session_id,
+                "screenshot": final_result.screenshot,
+                "message": "",
+                "crawler": crawler if self.keep_browser_open else None
+            }
+            
+            # Vérifier si la connexion a réussi en se basant sur l'URL réelle
+            # URL de succès: https://administration-etrangers-en-france.interieur.gouv.fr/particuliers/#/
+            print(f"📍 URL finale: {actual_url}")
+            
+            # Vérifier d'abord si on demande une mise à jour du mot de passe
+            if "UPDATE_PASSWORD" in actual_url:
+                response["success"] = False
+                response["notifications"] = "UPDATE_PASSWORD"
+                response["message"] = "⚠️ Mise à jour du mot de passe requise"
+                print(f"⚠️ UPDATE_PASSWORD requis pour {username}")
+            elif "particuliers/#/" in actual_url or "particuliers/#&" in actual_url:
+                # On a bien atteint la page du dashboard
+                response["success"] = True
+                response["message"] = "✅ Connexion réussie!"
+                print(f"✅ Connexion réussie pour {username}")
+                
+                # Vérifier les notifications en cherchant le texte spécifique
+                try:
+                    # Attendre que la section des notifications se charge
+                    await asyncio.sleep(2)
+                    
+                    # Récupérer le HTML pour vérifier les notifications
+                    notif_check_config = CrawlerRunConfig(
+                        session_id=session_id,
+                        page_timeout=5000,
+                        screenshot=False
+                    )
+                    
+                    notif_result = await crawler.arun(
+                        url=final_result.url,
+                        config=notif_check_config
+                    )
+                    
+                    # Par défaut, pas de notifications
+                    response["notifications"] = "NON"
+                    response["type_notification"] = ""
+                    
+                    # Chercher les classes spécifiques qui indiquent des notifications
+                    html_content = notif_result.html
+                    
+                    # Indicateurs de notifications non lues :
+                    # - "nbr-notif-single" : compteur de notifications
+                    # - "ui-msg-not-read" : message non lu
+                    # - "ui-icon-not-read" : icône de message non lu
+                    if "nbr-notif-single" in html_content or "ui-msg-not-read" in html_content or "ui-icon-not-read" in html_content:
+                        response["notifications"] = "OUI"
+                        
+                        # Extraire le type de notification depuis le HTML
+                        import re
+                        # Chercher le texte dans <span class="ui-msg-not-read">
+                        notif_pattern = r'<span[^>]*class="ui-msg-not-read"[^>]*>\s*(.*?)\s*</span>'
+                        matches = re.findall(notif_pattern, html_content, re.DOTALL | re.IGNORECASE)
+                        if matches:
+                            # Nettoyer le texte (enlever les espaces multiples et retours à la ligne)
+                            notif_types = [re.sub(r'\s+', ' ', match.strip()) for match in matches if match.strip()]
+                            # Prendre la première notification (ou joindre toutes si plusieurs)
+                            response["type_notification"] = notif_types[0] if notif_types else ""
+                    
+                    print(f"🔔 Notifications: {response['notifications']}")
+                    if response["type_notification"]:
+                        print(f"   Type: {response['type_notification']}")
+                        
+                except Exception as e:
+                    response["notifications"] = "ERREUR"
+                    print(f"⚠️ Erreur vérification notifications: {e}")
+            else:
+                # Pas de fa-bell = échec
+                response["success"] = False
+                response["notifications"] = "N/A"
+                
+                # Déterminer le type d'échec
+                if "error" in final_result.html.lower() or "erreur" in final_result.html.lower():
+                    response["message"] = "❌ Erreur de connexion - Identifiants incorrects"
+                    print(f"❌ Identifiants incorrects pour {username}")
+                elif "maintenance" in final_result.html.lower():
+                    response["message"] = "❌ Page de maintenance - Site indisponible"
+                    print(f"❌ Page de maintenance pour {username}")
+                else:
+                    response["message"] = "❌ Dashboard non atteint - Vérifier manuellement"
+                    print(f"❌ Dashboard non atteint pour {username}")
+            
+            # Screenshots désactivés pour accélérer le traitement
+            response["screenshot_path"] = None
+            
+            # Attendre AVANT de fermer le crawler pour laisser le navigateur visible
+            if not self.headless and not self.keep_browser_open:
+                print("⏳ Attente de 4 secondes avant passage au compte suivant...")
+                await asyncio.sleep(4)
+            
+            # Si keep_browser_open est activé, attendre avant de fermer
+            if self.keep_browser_open:
+                print("\n" + "="*60)
+                print("🌐 NAVIGATEUR OUVERT - Vous pouvez observer la page")
+                print("="*60)
+                print("Appuyez sur Entrée pour fermer le navigateur...")
+                input()
+            
+            return response
+    
+    async def get_dashboard_info(self, session_id: str = "anef_session") -> Dict:
+        """
+        Récupère les informations du tableau de bord après connexion.
+        
+        Args:
+            session_id: ID de session établi lors de la connexion
+            
+        Returns:
+            Dict contenant les informations du tableau de bord
+        """
+        dashboard_url = "https://administration-etrangers-en-france.interieur.gouv.fr/particuliers/"
+        
+        browser_config = BrowserConfig(
+            headless=self.headless,
+            viewport_width=1920,
+            viewport_height=1080
+        )
+        
+        crawler_config = CrawlerRunConfig(
+            session_id=session_id,
+            page_timeout=30000,
+            screenshot=True,
+            wait_for="css:body"
+        )
+        
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            result = await crawler.arun(
+                url=dashboard_url,
+                config=crawler_config
+            )
+            
+            return {
+                "success": result.success,
+                "url": result.url,
+                "title": result.metadata.get("title", ""),
+                "markdown": result.markdown[:1000],  # Premiers 1000 caractères
+                "screenshot": result.screenshot
+            }
+
+
+async def test_single_login(username: str, password: str, headless: bool = False):
+    """
+    Test de connexion pour un seul compte.
+    
+    Args:
+        username: Identifiant ANEF
+        password: Mot de passe ANEF
+        headless: Mode sans interface graphique
+    """
+    connector = ANEFConnector(headless=headless, keep_browser_open=True)
+    
+    # Tentative de connexion
+    result = await connector.login(username, password)
+    
+    print("\n" + "="*60)
+    print("RÉSULTAT DE LA CONNEXION")
+    print("="*60)
+    print(f"Username: {result['username']}")
+    print(f"Success: {result['success']}")
+    print(f"Message: {result['message']}")
+    if "screenshot_path" in result:
+        print(f"Screenshot: {result['screenshot_path']}")
+    print("="*60)
+    
+    return result
+
+
+async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurrent: int = 1, limit: int = None):
+    """
+    Connexion en batch à partir du fichier CSV nettoyé (traitement séquentiel).
+    Mettre à jour la colonne G (Commentaire robot) en cas d'erreur.
+    
+    Args:
+        csv_path: Chemin vers le fichier CSV
+        headless: Mode sans interface graphique
+        max_concurrent: Non utilisé (traitement séquentiel)
+        limit: Nombre maximum de comptes à traiter (None = tous)
+    """
+    # Charger le CSV
+    df = pd.read_csv(csv_path, encoding='utf-8')
+    
+    # Convertir la colonne 'Commentaire robot' en type string pour éviter les erreurs de dtype
+    if 'Commentaire robot' in df.columns:
+        df['Commentaire robot'] = df['Commentaire robot'].astype(str)
+        # Remplacer 'nan' par chaîne vide
+        df['Commentaire robot'] = df['Commentaire robot'].replace('nan', '')
+    
+    # Filtrer les lignes avec identifiant ET mot de passe
+    df_valid = df[(df['Identifiant'].notna()) & (df['Mot_de_passe'].notna())].copy()
+    
+    # Limiter le nombre de comptes si spécifié
+    if limit:
+        df_valid = df_valid.head(limit)
+    
+    print(f"📊 {len(df_valid)} comptes à traiter sur {len(df)} lignes totales")
+    print(f"🚀 Démarrage des connexions (traitement séquentiel)...\n")
+    
+    connector = ANEFConnector(headless=headless)
+    results = []
+    
+    # Traiter compte par compte
+    for idx, row in df_valid.iterrows():
+        username = str(row['Identifiant'])
+        password = str(row['Mot_de_passe'])
+        client_name = row['웃 Client Name']
+        email = str(row.get('Email', '')) if pd.notna(row.get('Email')) else ''
+        mobile = str(row.get('Mobile', '')) if pd.notna(row.get('Mobile')) else ''
+        
+        print(f"\n[{idx+1}/{len(df_valid)}] Traitement de {client_name}...")
+        
+        session_id = f"anef_session_{idx}"
+        result = await connector.login(username, password, session_id)
+        
+        # Ajouter les infos du client
+        result['client_name'] = client_name
+        result['row_index'] = idx
+        
+        # Mettre à jour la colonne G (Commentaire robot) en cas d'erreur
+        if not result['success']:
+            df.loc[idx, 'Commentaire robot'] = result['message']
+        else:
+            # Effacer le commentaire si la connexion réussit
+            df.loc[idx, 'Commentaire robot'] = ''
+        
+        results.append(result)
+        
+        # Envoyer le webhook selon le cas
+        if result.get('notifications') == 'UPDATE_PASSWORD':
+            # CAS 4: Réinitialisation du mot de passe requise
+            send_webhook_notification(
+                client_name=client_name,
+                username=username,
+                email=email,
+                mobile=mobile,
+                case="Réinitialisation mot de passe requise"
+            )
+        elif not result['success']:
+            # CAS 3: Identifiants incorrects
+            send_webhook_notification(
+                client_name=client_name,
+                username=username,
+                email=email,
+                mobile=mobile,
+                case="Identifiants incorrects"
+            )
+        elif result.get('notifications') == 'OUI':
+            # CAS 2: Nouvelle notification
+            send_webhook_notification(
+                client_name=client_name,
+                username=username,
+                email=email,
+                mobile=mobile,
+                case="Nouvelle notification",
+                notification_type=result.get('type_notification', '')
+            )
+        elif result.get('notifications') == 'NON':
+            # CAS 1: Aucune notification
+            send_webhook_notification(
+                client_name=client_name,
+                username=username,
+                email=email,
+                mobile=mobile,
+                case="Aucune notification"
+            )
+        
+        # Pause entre les connexions pour éviter les blocages
+        if idx < len(df_valid) - 1:
+            await asyncio.sleep(2)  # 2 secondes entre chaque connexion
+    
+    # Résumé des résultats
+    print("\n" + "="*60)
+    print("RÉSUMÉ DES CONNEXIONS")
+    print("="*60)
+    
+    successful = [r for r in results if r['success']]
+    failed = [r for r in results if not r['success']]
+    
+    print(f"✅ Réussies: {len(successful)}/{len(results)}")
+    print(f"❌ Échouées: {len(failed)}/{len(results)}")
+    
+    if failed:
+        print("\n❌ Échecs:")
+        for r in failed:
+            print(f"  - {r['client_name']} ({r['username']}): {r['message']}")
+    
+    # Sauvegarder le CSV original avec la colonne G mise à jour
+    updated_csv_path = csv_path.replace('.csv', '_UPDATED.csv')
+    df.to_csv(updated_csv_path, index=False, encoding='utf-8')
+    print(f"\n💾 CSV mis à jour sauvegardé dans: {updated_csv_path}")
+    print(f"   → Colonne G (Commentaire robot) mise à jour avec les erreurs")
+    
+    # Sauvegarder aussi un rapport détaillé
+    results_df = pd.DataFrame(results)
+    # Sélectionner les colonnes importantes pour le rapport
+    columns_to_save = ['client_name', 'username', 'success', 'notifications', 'type_notification', 'message', 'screenshot_path']
+    results_df = results_df[[col for col in columns_to_save if col in results_df.columns]]
+    
+    results_path = "anef_login_results.csv"
+    results_df.to_csv(results_path, index=False, encoding='utf-8')
+    print(f"💾 Rapport détaillé sauvegardé dans: {results_path}")
+    
+    # Afficher un résumé des notifications
+    if 'notifications' in results_df.columns:
+        notif_oui = len(results_df[results_df['notifications'] == 'OUI'])
+        notif_non = len(results_df[results_df['notifications'] == 'NON'])
+        update_pwd = len(results_df[results_df['notifications'] == 'UPDATE_PASSWORD'])
+        print(f"\n🔔 Notifications: {notif_oui} OUI, {notif_non} NON")
+        if update_pwd > 0:
+            print(f"⚠️  UPDATE_PASSWORD requis: {update_pwd}")
+    
+    return results
+
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) > 1:
+        # Mode test avec un seul compte
+        if len(sys.argv) == 3:
+            username = sys.argv[1]
+            password = sys.argv[2]
+            print(f"🧪 Mode test - Connexion unique")
+            asyncio.run(test_single_login(username, password, headless=False))
+        else:
+            print("Usage: python anef_login.py <username> <password>")
+            print("   ou: python anef_login.py  (pour traiter le CSV)")
+    else:
+        # Mode batch depuis le CSV
+        csv_path = r"C:\Users\Antoi\Desktop\ProjetAnef\MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED.csv"
+        print(f"📁 Mode batch - Traitement du CSV: {csv_path}")
+        
+        # Demander le nombre de comptes à traiter
+        limit_input = input("\n🔢 Combien de comptes traiter? (défaut: tous, entrez un nombre pour limiter): ")
+        if limit_input.strip() == '':
+            limit = None  # Traiter tous les comptes par défaut
+        elif limit_input.lower() == 'all':
+            limit = None
+        else:
+            try:
+                limit = int(limit_input)
+            except:
+                limit = 10
+        
+        # Demander confirmation
+        response = input(f"\n⚠️ Lancer les connexions pour {limit if limit else 'TOUS les'} comptes? (oui/non): ")
+        if response.lower() in ['oui', 'o', 'yes', 'y']:
+            asyncio.run(batch_login_from_csv(csv_path, headless=True, max_concurrent=1, limit=limit))
+        else:
+            print("❌ Opération annulée")
