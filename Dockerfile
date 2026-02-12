@@ -8,11 +8,8 @@ ENV LANG=fr_FR.UTF-8 \
     TZ=Europe/Paris \
     DEBIAN_FRONTEND=noninteractive
 
-# Installer Xvfb, x11vnc, fonts et locales pour éviter la détection via canvas fingerprinting
+# Installer fonts et locales pour éviter la détection via canvas fingerprinting
 RUN apt-get update && apt-get install -y \
-    xvfb \
-    x11vnc \
-    fluxbox \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-noto-color-emoji \
@@ -46,36 +43,23 @@ COPY anef_login.py .
 COPY clean_csv.py .
 COPY fix_mobile_numbers.py .
 COPY add_test_account.py .
-COPY start_vnc.sh .
 
 # Variables d'environnement pour le webhook
 ENV WEBHOOK_URL="https://n8n.wesype.com/webhook-test/4b437fa0-b785-4ccb-9621-e3c52984dd2e"
 
 # L'image Playwright a déjà un utilisateur pwuser (UID 1000)
-# On change juste les permissions du dossier /app
 RUN chown -R pwuser:pwuser /app
-
-# Créer le répertoire pour Xvfb avec les bonnes permissions
-RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 
 # Créer le répertoire pour les résultats
 RUN mkdir -p /app/results && chown -R pwuser:pwuser /app/results
 
-# Rendre le script VNC exécutable
-RUN chmod +x /app/start_vnc.sh
-
 USER pwuser
 
-# Définir DISPLAY et variables d'environnement pour le navigateur
-ENV DISPLAY=:99 \
-    LANGUAGE=fr_FR:fr \
+ENV LANGUAGE=fr_FR:fr \
     LANG=fr_FR.UTF-8
 
 # Volume pour les fichiers CSV et résultats
 VOLUME ["/app/data", "/app/results"]
 
-# Exposer le port VNC
-EXPOSE 5900
-
-# Commande par défaut : démarrer VNC et le script Python
-CMD ["/app/start_vnc.sh"]
+# Lancer directement le script Python
+CMD ["python", "anef_login.py"]
