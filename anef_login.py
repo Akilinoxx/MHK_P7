@@ -211,8 +211,8 @@ class ANEFConnector:
                 page_timeout=30000,  # Augmenté à 30 secondes pour laisser le temps de charger
                 js_code=login_js,
                 screenshot=False,  # Désactivé pour accélérer le traitement
-                remove_overlay_elements=False
-                # Pas de wait_for - on laisse le JS s'exécuter et on capture le résultat
+                remove_overlay_elements=False,
+                wait_for="css:#final-url-after-login"  # Attendre que le JS ait créé l'élément avec l'URL finale
             )
             
             result = await crawler.arun(
