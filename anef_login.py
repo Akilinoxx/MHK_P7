@@ -38,12 +38,14 @@ def send_webhook_notification(client_name: str, username: str, email: str, mobil
             "notification_type": notification_type
         }
         
+        print(f"  🔗 Webhook URL: {WEBHOOK_URL}")
         response = requests.post(WEBHOOK_URL, json=payload, timeout=10)
         
         if response.status_code == 200:
             print(f"  📤 Webhook envoyé: {case}")
         else:
             print(f"  ⚠️ Webhook erreur {response.status_code}")
+            print(f"  📄 Réponse: {response.text[:200]}")
             
     except Exception as e:
         print(f"  ❌ Erreur webhook: {e}")
