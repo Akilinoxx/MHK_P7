@@ -215,12 +215,22 @@ class ANEFConnector:
 
             import re
 
+            result_html = result.html or ""
+
             # Vérifier si UPDATE_PASSWORD est déjà visible après la soumission
-            if "UPDATE_PASSWORD" in (result.html or "") or "required-action" in (result.html or "") or "Réinitialisez votre mot de passe" in (result.html or ""):
+            if "UPDATE_PASSWORD" in result_html or "required-action" in result_html or "Réinitialisez votre mot de passe" in result_html:
                 print("🔍 Détection UPDATE_PASSWORD après soumission")
-                final_html = result.html
+                final_html = result_html
                 login_success = False
                 is_update_password = True
+                login_error = False
+            # Vérifier si le SSO affiche une erreur d'identifiants
+            elif "fr-alert--error" in result_html or "mot de passe invalide" in result_html.lower() or "invalid" in result_html.lower():
+                print("❌ Erreur d'identifiants détectée après soumission")
+                final_html = result_html
+                login_success = False
+                is_update_password = False
+                login_error = True
             else:
                 # Étape 2 : Naviguer vers le dashboard dans la même session
                 # Si le login a réussi, les cookies sont en place et on arrivera sur le dashboard
@@ -242,6 +252,7 @@ class ANEFConnector:
 
                 final_html = dashboard_result.html or ""
                 is_update_password = False
+                login_error = False
 
                 # Déterminer si on est sur le dashboard en analysant le contenu HTML
                 html_lower = final_html.lower()
@@ -295,6 +306,11 @@ class ANEFConnector:
                 response["notifications"] = "UPDATE_PASSWORD"
                 response["message"] = "⚠️ Mise à jour du mot de passe requise"
                 print(f"⚠️ UPDATE_PASSWORD requis pour {username}")
+            elif login_error:
+                response["success"] = False
+                response["notifications"] = "N/A"
+                response["message"] = "❌ Erreur de connexion - Identifiants incorrects"
+                print(f"❌ Identifiants incorrects pour {username}")
             elif login_success:
                 response["success"] = True
                 response["message"] = "✅ Connexion réussie!"
