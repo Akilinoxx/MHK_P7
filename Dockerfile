@@ -8,9 +8,11 @@ ENV LANG=fr_FR.UTF-8 \
     TZ=Europe/Paris \
     DEBIAN_FRONTEND=noninteractive
 
-# Installer Xvfb, fonts et locales pour éviter la détection via canvas fingerprinting
+# Installer Xvfb, x11vnc, fonts et locales pour éviter la détection via canvas fingerprinting
 RUN apt-get update && apt-get install -y \
     xvfb \
+    x11vnc \
+    fluxbox \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-noto-color-emoji \
@@ -44,6 +46,7 @@ COPY anef_login.py .
 COPY clean_csv.py .
 COPY fix_mobile_numbers.py .
 COPY add_test_account.py .
+COPY start_vnc.sh .
 
 # Variables d'environnement pour le webhook
 ENV WEBHOOK_URL="https://n8n.wesype.com/webhook-test/4b437fa0-b785-4ccb-9621-e3c52984dd2e"
@@ -58,6 +61,9 @@ RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 # Créer le répertoire pour les résultats
 RUN mkdir -p /app/results && chown -R pwuser:pwuser /app/results
 
+# Rendre le script VNC exécutable
+RUN chmod +x /app/start_vnc.sh
+
 USER pwuser
 
 # Définir DISPLAY et variables d'environnement pour le navigateur
@@ -68,6 +74,8 @@ ENV DISPLAY=:99 \
 # Volume pour les fichiers CSV et résultats
 VOLUME ["/app/data", "/app/results"]
 
-# Commande par défaut avec Xvfb (résolution réaliste pour éviter la détection)
-# Xvfb démarre en arrière-plan, puis le script Python s'exécute
-CMD ["sh", "-c", "Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp -ac +extension GLX +render -noreset & sleep 2 && python anef_login.py"]
+# Exposer le port VNC
+EXPOSE 5900
+
+# Commande par défaut : démarrer VNC et le script Python
+CMD ["/app/start_vnc.sh"]

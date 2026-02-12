@@ -608,10 +608,15 @@ if __name__ == "__main__":
                 except:
                     limit = None
             
+            # Vérifier si on veut afficher le navigateur
+            headless_env = os.getenv('HEADLESS', 'true').lower()
+            headless = headless_env in ['true', '1', 'yes']
+            
             print(f"🐳 Mode Docker détecté")
             print(f"📊 Comptes à traiter: {limit if limit else 'TOUS'}")
+            print(f"🖥️ Mode navigateur: {'Headless' if headless else 'Visible (VNC)'}")
             print(f"🚀 Démarrage automatique...\n")
-            asyncio.run(batch_login_from_csv(csv_path, headless=True, max_concurrent=1, limit=limit))
+            asyncio.run(batch_login_from_csv(csv_path, headless=headless, max_concurrent=1, limit=limit))
         else:
             # Mode interactif : demander à l'utilisateur
             limit_input = input("\n🔢 Combien de comptes traiter? (défaut: tous, entrez un nombre pour limiter): ")

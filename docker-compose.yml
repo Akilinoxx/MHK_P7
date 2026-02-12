@@ -5,6 +5,7 @@ services:
     environment:
       - WEBHOOK_URL=${WEBHOOK_URL:-https://n8n.wesype.com/webhook-test/4b437fa0-b785-4ccb-9621-e3c52984dd2e}
       - ACCOUNT_LIMIT=${ACCOUNT_LIMIT:-all}
+      - HEADLESS=${HEADLESS:-true}
       - TZ=Europe/Paris
       - LANG=fr_FR.UTF-8
     volumes:
@@ -12,6 +13,9 @@ services:
       - ./MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED.csv:/app/data/input.csv:ro
       # Monter le dossier pour les résultats
       - ./results:/app/results
+    ports:
+      # Port VNC pour visualiser le navigateur
+      - "5900:5900"
     restart: unless-stopped
     # Limites de ressources (optionnel)
     deploy:
