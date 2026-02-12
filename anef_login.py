@@ -589,7 +589,7 @@ if __name__ == "__main__":
         # Utiliser le chemin Docker si le fichier existe, sinon utiliser le chemin local
         import os
         docker_csv_path = "/app/data/input.csv"
-        local_csv_path = r"C:\Users\Antoi\Desktop\ProjetAnef\MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED.csv"
+        local_csv_path = r"C:\Users\Antoi\Desktop\ProjetAnef\TRUE CSV MHK - MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED_UPDATED.csv"
         
         csv_path = docker_csv_path if os.path.exists(docker_csv_path) else local_csv_path
         print(f"📁 Mode batch - Traitement du CSV: {csv_path}")

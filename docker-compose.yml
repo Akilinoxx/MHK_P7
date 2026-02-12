@@ -10,7 +10,7 @@ services:
       - LANG=fr_FR.UTF-8
     volumes:
       # Monter le fichier CSV d'entrée
-      - ./MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED.csv:/app/data/input.csv:ro
+      - ./TRUE CSV MHK - MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED_UPDATED.csv:/app/data/input.csv:ro
       # Monter le dossier pour les résultats
       - ./results:/app/results
     ports:
