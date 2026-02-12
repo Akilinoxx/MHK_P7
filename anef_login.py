@@ -185,8 +185,8 @@ class ANEFConnector:
                 
                 console.log('✅ Formulaire soumis!');
                 
-                // Attendre la redirection et le chargement complet (10 secondes)
-                await new Promise(resolve => setTimeout(resolve, 10000));
+                // Attendre la redirection et le chargement complet (15 secondes pour être sûr)
+                await new Promise(resolve => setTimeout(resolve, 15000));
                 
                 console.log('✅ Redirection effectuée');
                 
@@ -201,6 +201,9 @@ class ANEFConnector:
                 
                 console.log('📍 URL finale capturée:', finalUrl);
                 
+                // Retourner l'URL pour s'assurer qu'elle est disponible
+                return finalUrl;
+                
             }} catch (error) {{
                 console.error('❌ Erreur:', error.message);
             }}
@@ -208,11 +211,11 @@ class ANEFConnector:
             
             login_config = CrawlerRunConfig(
                 session_id=session_id,
-                page_timeout=30000,  # Augmenté à 30 secondes pour laisser le temps de charger
+                page_timeout=45000,  # 45 secondes pour laisser le temps au JS de s'exécuter (15s d'attente + marge)
                 js_code=login_js,
                 screenshot=False,  # Désactivé pour accélérer le traitement
                 remove_overlay_elements=False,
-                wait_for="css:#final-url-after-login"  # Attendre que le JS ait créé l'élément avec l'URL finale
+                js_only=True  # Forcer l'exécution complète du JS avant de retourner
             )
             
             result = await crawler.arun(
