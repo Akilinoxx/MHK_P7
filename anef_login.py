@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import json
+import os
 import sys
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from typing import Optional, Dict
