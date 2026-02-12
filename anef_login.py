@@ -586,7 +586,12 @@ if __name__ == "__main__":
             print("   ou: python anef_login.py  (pour traiter le CSV)")
     else:
         # Mode batch depuis le CSV
-        csv_path = r"C:\Users\Antoi\Desktop\ProjetAnef\MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED.csv"
+        # Utiliser le chemin Docker si le fichier existe, sinon utiliser le chemin local
+        import os
+        docker_csv_path = "/app/data/input.csv"
+        local_csv_path = r"C:\Users\Antoi\Desktop\ProjetAnef\MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED.csv"
+        
+        csv_path = docker_csv_path if os.path.exists(docker_csv_path) else local_csv_path
         print(f"📁 Mode batch - Traitement du CSV: {csv_path}")
         
         # Demander le nombre de comptes à traiter

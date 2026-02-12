@@ -1,0 +1,48 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# CSV files with sensitive data
+*_UPDATED.csv
+*_FIXED_UPDATED.csv
+anef_login_results.csv
+
+# Screenshots
+screenshots/
+*.png
+*.jpg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation
+README.md
+
+# Results folder
+results/
+
+# Windsurf skills (not needed in container)
+.windsurf/

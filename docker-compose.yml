@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  anef-scraper:
+    build: .
+    container_name: anef-scraper
+    environment:
+      - WEBHOOK_URL=${WEBHOOK_URL:-https://n8n.wesype.com/webhook-test/4b437fa0-b785-4ccb-9621-e3c52984dd2e}
+      - TZ=Europe/Paris
+      - LANG=fr_FR.UTF-8
+    volumes:
+      # Monter le fichier CSV d'entrée
+      - ./MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED.csv:/app/data/input.csv:ro
+      # Monter le dossier pour les résultats
+      - ./results:/app/results
+    restart: unless-stopped
+    # Limites de ressources (optionnel)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G

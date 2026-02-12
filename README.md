@@ -16,6 +16,8 @@ Ce projet automatise le processus de connexion à la plateforme ANEF pour plusie
 
 ## 📦 Installation
 
+### Option 1 : Installation locale
+
 ```bash
 # Cloner le repository
 git clone https://github.com/Akilinoxx/MHK_P7.git
@@ -23,6 +25,29 @@ cd MHK_P7
 
 # Installer les dépendances
 pip install -r requirements.txt
+```
+
+### Option 2 : Docker (recommandé)
+
+```bash
+# Cloner le repository
+git clone https://github.com/Akilinoxx/MHK_P7.git
+cd MHK_P7
+
+# Créer le fichier .env à partir de l'exemple
+cp .env.example .env
+
+# Modifier l'URL du webhook dans .env si nécessaire
+# WEBHOOK_URL=https://votre-webhook-url.com
+
+# Créer le dossier results
+mkdir results
+
+# Construire et lancer le container
+docker-compose up -d
+
+# Voir les logs
+docker-compose logs -f
 ```
 
 ## 🔧 Configuration
@@ -41,14 +66,50 @@ WEBHOOK_URL = "https://votre-webhook-url.com"
 
 ## 📊 Utilisation
 
-### Mode batch (traitement CSV)
+### Mode local
+
+#### Mode batch (traitement CSV)
 ```bash
 python anef_login.py
 ```
 
-### Mode test (compte unique)
+#### Mode test (compte unique)
 ```bash
 python anef_login.py <identifiant> <mot_de_passe>
+```
+
+### Mode Docker
+
+#### Lancer le scraping
+```bash
+# Démarrer le container
+docker-compose up -d
+
+# Suivre les logs en temps réel
+docker-compose logs -f anef-scraper
+
+# Arrêter le container
+docker-compose down
+```
+
+#### Récupérer les résultats
+Les fichiers de résultats sont automatiquement sauvegardés dans le dossier `./results/` :
+- `*_UPDATED.csv` : CSV mis à jour avec les erreurs dans la colonne G
+- `anef_login_results.csv` : Rapport détaillé de tous les comptes traités
+
+#### Commandes Docker utiles
+```bash
+# Reconstruire l'image après modification du code
+docker-compose build
+
+# Voir les logs
+docker-compose logs -f
+
+# Entrer dans le container
+docker-compose exec anef-scraper bash
+
+# Nettoyer les containers et images
+docker-compose down --rmi all
 ```
 
 ## 📤 Cas de webhooks
