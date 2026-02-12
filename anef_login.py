@@ -594,21 +594,39 @@ if __name__ == "__main__":
         csv_path = docker_csv_path if os.path.exists(docker_csv_path) else local_csv_path
         print(f"📁 Mode batch - Traitement du CSV: {csv_path}")
         
-        # Demander le nombre de comptes à traiter
-        limit_input = input("\n🔢 Combien de comptes traiter? (défaut: tous, entrez un nombre pour limiter): ")
-        if limit_input.strip() == '':
-            limit = None  # Traiter tous les comptes par défaut
-        elif limit_input.lower() == 'all':
-            limit = None
-        else:
-            try:
-                limit = int(limit_input)
-            except:
-                limit = 10
+        # Vérifier si on est en mode Docker (pas de TTY)
+        is_docker = not sys.stdin.isatty()
         
-        # Demander confirmation
-        response = input(f"\n⚠️ Lancer les connexions pour {limit if limit else 'TOUS les'} comptes? (oui/non): ")
-        if response.lower() in ['oui', 'o', 'yes', 'y']:
+        if is_docker:
+            # Mode Docker : utiliser les variables d'environnement
+            limit_env = os.getenv('ACCOUNT_LIMIT', 'all')
+            if limit_env.lower() == 'all':
+                limit = None
+            else:
+                try:
+                    limit = int(limit_env)
+                except:
+                    limit = None
+            
+            print(f"🐳 Mode Docker détecté")
+            print(f"📊 Comptes à traiter: {limit if limit else 'TOUS'}")
+            print(f"🚀 Démarrage automatique...\n")
             asyncio.run(batch_login_from_csv(csv_path, headless=True, max_concurrent=1, limit=limit))
         else:
-            print("❌ Opération annulée")
+            # Mode interactif : demander à l'utilisateur
+            limit_input = input("\n🔢 Combien de comptes traiter? (défaut: tous, entrez un nombre pour limiter): ")
+            if limit_input.strip() == '':
+                limit = None  # Traiter tous les comptes par défaut
+            elif limit_input.lower() == 'all':
+                limit = None
+            else:
+                try:
+                    limit = int(limit_input)
+                except:
+                    limit = 10
+            
+            response = input(f"\n⚠️ Lancer les connexions pour {limit if limit else 'TOUS les'} comptes? (oui/non): ")
+            if response.lower() in ['oui', 'o', 'yes', 'y']:
+                asyncio.run(batch_login_from_csv(csv_path, headless=True, max_concurrent=1, limit=limit))
+            else:
+                print("❌ Opération annulée")

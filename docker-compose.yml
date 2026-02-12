@@ -1,11 +1,10 @@
-version: '3.8'
-
 services:
   anef-scraper:
     build: .
     container_name: anef-scraper
     environment:
       - WEBHOOK_URL=${WEBHOOK_URL:-https://n8n.wesype.com/webhook-test/4b437fa0-b785-4ccb-9621-e3c52984dd2e}
+      - ACCOUNT_LIMIT=${ACCOUNT_LIMIT:-all}
       - TZ=Europe/Paris
       - LANG=fr_FR.UTF-8
     volumes:

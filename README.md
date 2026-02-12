@@ -37,17 +37,21 @@ cd MHK_P7
 # Créer le fichier .env à partir de l'exemple
 cp .env.example .env
 
-# Modifier l'URL du webhook dans .env si nécessaire
+# Modifier les variables dans .env si nécessaire
 # WEBHOOK_URL=https://votre-webhook-url.com
+# ACCOUNT_LIMIT=10  (ou "all" pour tous les comptes)
 
 # Créer le dossier results
 mkdir results
 
-# Construire et lancer le container
+# Construire l'image Docker
+docker-compose build
+
+# Lancer le container
 docker-compose up -d
 
-# Voir les logs
-docker-compose logs -f
+# Voir les logs en temps réel
+docker-compose logs -f anef-scraper
 ```
 
 ## 🔧 Configuration
@@ -82,8 +86,14 @@ python anef_login.py <identifiant> <mot_de_passe>
 
 #### Lancer le scraping
 ```bash
+# Construire l'image (première fois ou après modification du code)
+docker-compose build
+
 # Démarrer le container
 docker-compose up -d
+
+# Ou en une seule commande (build + start)
+docker-compose up -d --build
 
 # Suivre les logs en temps réel
 docker-compose logs -f anef-scraper
