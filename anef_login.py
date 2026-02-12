@@ -13,8 +13,8 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-# URL du webhook
-WEBHOOK_URL = "https://n8n.wesype.com/webhook-test/4b437fa0-b785-4ccb-9621-e3c52984dd2e"
+# URL du webhook (peut être surchargée par variable d'environnement)
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', "https://n8n.wesype.com/webhook/4b437fa0-b785-4ccb-9621-e3c52984dd2e")
 
 def send_webhook_notification(client_name: str, username: str, email: str, mobile: str, case: str, notification_type: str = ""):
     """
@@ -255,34 +255,42 @@ class ANEFConnector:
                 login_error = False
 
                 # Déterminer si on est sur le dashboard en analysant le contenu HTML
-                html_lower = final_html.lower()
 
-                # Indicateurs positifs : éléments du dashboard ANEF (pas les notifications, qui sont optionnelles)
-                dashboard_indicators = [
-                    "fa-bell",  # icône cloche (toujours présente sur le dashboard)
-                    "tableau-de-bord", "tableau de bord",  # titre dashboard
-                    "mes-dossiers", "mes dossiers",  # section dossiers
-                    "déconnexion", "deconnexion", "logout",  # bouton déconnexion
-                    "notification-table",  # tableau des notifications
-                ]
+                # Indicateurs positifs : éléments spécifiques au dashboard ANEF (cherchés dans le HTML brut, pas en minuscules)
+                dashboard_indicators = {
+                    "notification-table": "tableau notifications",
+                    "fa-bell": "icône cloche",
+                    "tableau-de-bord": "titre dashboard",
+                    "mes-dossiers": "section dossiers",
+                }
 
-                # Indicateurs négatifs : on est encore sur la page de login SSO
-                login_indicators = [
-                    'name="username"', 'name="password"', 'type="submit"',
-                    "kc-login", "kc-form-login",  # classes Keycloak SSO
-                ]
+                # Indicateurs négatifs : on est sur la page de login SSO ou erreur
+                login_indicators = {
+                    'name="username"': "champ username",
+                    'name="password"': "champ password",
+                    "kc-login": "classe Keycloak",
+                    "kc-form-login": "formulaire Keycloak",
+                    "fr-alert--error": "alerte erreur SSO",
+                    "mot de passe invalide": "erreur identifiants",
+                    "mot de passe oubli": "lien mdp oublié",
+                }
 
-                has_dashboard = any(ind in html_lower for ind in dashboard_indicators)
-                has_login_form = any(ind in html_lower for ind in login_indicators)
+                matched_dashboard = [desc for ind, desc in dashboard_indicators.items() if ind in final_html]
+                matched_login = [desc for ind, desc in login_indicators.items() if ind in final_html.lower()]
+
+                has_dashboard = len(matched_dashboard) > 0
+                has_login_form = len(matched_login) > 0
 
                 login_success = has_dashboard and not has_login_form
 
                 if login_success:
-                    print(f"✅ Dashboard détecté via contenu HTML")
+                    print(f"✅ Dashboard détecté via: {', '.join(matched_dashboard)}")
                 elif has_login_form:
-                    print(f"❌ Page de login SSO encore présente (login échoué)")
+                    print(f"❌ Page de login SSO détectée via: {', '.join(matched_login)}")
+                    login_error = True
                 else:
                     print(f"⚠️ Page non identifiée, HTML length={len(final_html)}")
+                    print(f"   Premiers 500 chars: {final_html[:500]}")
 
                 # Vérifier aussi UPDATE_PASSWORD dans le HTML du dashboard
                 if "UPDATE_PASSWORD" in final_html or "required-action" in final_html or "Réinitialisez votre mot de passe" in final_html:
