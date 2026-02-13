@@ -85,8 +85,8 @@ class ANEFConnector:
         """
         browser_config = BrowserConfig(
             headless=self.headless,
-            viewport_width=1920,
-            viewport_height=1080,
+            viewport_width=1280,
+            viewport_height=800,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -190,10 +190,10 @@ class ANEFConnector:
                 
                 console.log('✅ Formulaire soumis!');
 
-                // Attendre que la soumission soit envoyée et la redirection commence
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                // Attendre que la soumission soit envoyée et que la redirection OAuth complète se termine
+                await new Promise(resolve => setTimeout(resolve, 8000));
 
-                console.log('✅ Formulaire soumis, en attente de redirection...');
+                console.log('✅ Formulaire soumis, redirection OAuth en cours...');
                 return 'submitted';
                 
             }} catch (error) {{
@@ -401,8 +401,8 @@ class ANEFConnector:
         
         browser_config = BrowserConfig(
             headless=self.headless,
-            viewport_width=1920,
-            viewport_height=1080
+            viewport_width=1280,
+            viewport_height=800
         )
         
         crawler_config = CrawlerRunConfig(
