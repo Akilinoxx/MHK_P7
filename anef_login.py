@@ -14,7 +14,7 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # URL du webhook
-WEBHOOK_URL = "https://n8n.wesype.com/webhook-test/4b437fa0-b785-4ccb-9621-e3c52984dd2e"
+WEBHOOK_URL = "https://n8n.wesype.com/webhook/4b437fa0-b785-4ccb-9621-e3c52984dd2e"
 
 def send_webhook_notification(client_name: str, username: str, email: str, mobile: str, case: str, notification_type: str = ""):
     """
