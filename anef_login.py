@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import json
-import os
 import sys
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from typing import Optional, Dict
@@ -14,17 +13,16 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-# URL du webhook (peut être surchargée par variable d'environnement)
-WEBHOOK_URL = os.getenv('WEBHOOK_URL', "https://n8n.wesype.com/webhook/4b437fa0-b785-4ccb-9621-e3c52984dd2e")
+# URL du webhook
+WEBHOOK_URL = "https://n8n.wesype.com/webhook-test/4b437fa0-b785-4ccb-9621-e3c52984dd2e"
 
-def send_webhook_notification(client_name: str, username: str, password: str, email: str, mobile: str, case: str, notification_type: str = ""):
+def send_webhook_notification(client_name: str, username: str, email: str, mobile: str, case: str, notification_type: str = ""):
     """
     Envoie une notification webhook pour chaque compte traité.
     
     Args:
         client_name: Nom du client
         username: Identifiant ANEF
-        password: Mot de passe ANEF
         email: Adresse email
         mobile: Numéro de téléphone
         case: Type de cas ("Aucune notification", "Nouvelle notification", "Identifiants incorrects")
@@ -34,21 +32,18 @@ def send_webhook_notification(client_name: str, username: str, password: str, em
         payload = {
             "client_name": client_name,
             "username": username,
-            "password": password,
             "email": email,
             "mobile": mobile,
             "case": case,
             "notification_type": notification_type
         }
         
-        print(f"  🔗 Webhook URL: {WEBHOOK_URL}")
         response = requests.post(WEBHOOK_URL, json=payload, timeout=10)
         
         if response.status_code == 200:
             print(f"  📤 Webhook envoyé: {case}")
         else:
             print(f"  ⚠️ Webhook erreur {response.status_code}")
-            print(f"  📄 Réponse: {response.text[:200]}")
             
     except Exception as e:
         print(f"  ❌ Erreur webhook: {e}")
@@ -85,8 +80,8 @@ class ANEFConnector:
         """
         browser_config = BrowserConfig(
             headless=self.headless,
-            viewport_width=1280,
-            viewport_height=800,
+            viewport_width=1920,
+            viewport_height=1080,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -184,17 +179,41 @@ class ANEFConnector:
                 await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
                 
                 console.log('🚀 Soumission du formulaire...');
-                
+
                 // Soumettre
                 submitButton.click();
-                
+
                 console.log('✅ Formulaire soumis!');
 
-                // Attendre que la soumission soit envoyée et que la redirection OAuth complète se termine
-                await new Promise(resolve => setTimeout(resolve, 8000));
+                // Attendre que la redirection OAuth se termine complètement
+                // Le SSO redirige vers /particuliers/#code=... qui échange le code contre un token
+                // puis la SPA charge le dashboard
+                const waitForRedirect = async (maxWait = 20000) => {{
+                    const start = Date.now();
+                    while (Date.now() - start < maxWait) {{
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        const currentUrl = window.location.href;
+                        // On attend soit d'être sur le dashboard, soit une erreur SSO
+                        if (currentUrl.includes('administration-etrangers-en-france.interieur.gouv.fr/particuliers/')) {{
+                            console.log('🔄 Redirection vers le portail détectée: ' + currentUrl);
+                            // Attendre encore un peu que la SPA se charge
+                            await new Promise(resolve => setTimeout(resolve, 5000));
+                            return 'redirected';
+                        }}
+                        if (document.querySelector('.fr-alert--error') ||
+                            document.querySelector('[action="UPDATE_PASSWORD"]') ||
+                            document.body.textContent.includes('Réinitialisez votre mot de passe')) {{
+                            console.log('⚠️ Erreur ou action requise détectée');
+                            return 'error_or_action';
+                        }}
+                    }}
+                    console.log('⏰ Timeout en attente de redirection');
+                    return 'timeout';
+                }};
 
-                console.log('✅ Formulaire soumis, redirection OAuth en cours...');
-                return 'submitted';
+                const redirectResult = await waitForRedirect();
+                console.log('✅ Résultat redirection: ' + redirectResult);
+                return redirectResult;
                 
             }} catch (error) {{
                 console.error('❌ Erreur:', error.message);
@@ -204,7 +223,7 @@ class ANEFConnector:
             # Étape 1 : Naviguer vers la page SSO et soumettre le formulaire
             login_config = CrawlerRunConfig(
                 session_id=session_id,
-                page_timeout=20000,
+                page_timeout=60000,  # 60s pour couvrir soumission + redirection OAuth + chargement SPA
                 js_code=login_js,
                 screenshot=False,
                 remove_overlay_elements=False,
@@ -237,21 +256,29 @@ class ANEFConnector:
                 is_update_password = False
                 login_error = True
             else:
-                # Étape 2 : Naviguer vers le dashboard dans la même session
-                # Si le login a réussi, les cookies sont en place et on arrivera sur le dashboard
-                # Sinon, on sera redirigé vers le SSO
-                print("🔄 Étape 2: Navigation vers le dashboard...")
+                # Étape 2 : La redirection OAuth s'est complétée dans la même page
+                # Le JS a attendu que le navigateur arrive sur /particuliers/ et que la SPA charge
+                # On récupère le HTML actuel de la page (qui devrait être le dashboard)
+                print("🔄 Étape 2: Récupération du HTML post-redirection...")
+
+                dashboard_js = """
+                // Attendre que le contenu SPA soit chargé
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                return document.documentElement.outerHTML;
+                """
 
                 dashboard_config = CrawlerRunConfig(
                     session_id=session_id,
-                    page_timeout=40000,
+                    page_timeout=30000,
                     screenshot=False,
                     remove_overlay_elements=False,
-                    delay_before_return_html=5.0,  # Attendre 5s que la SPA se charge complètement
+                    js_code=dashboard_js,
+                    js_only=True,  # Ne pas naviguer, juste exécuter le JS dans la page actuelle
+                    delay_before_return_html=3.0,
                 )
 
                 dashboard_result = await crawler.arun(
-                    url=self.home_url,
+                    url=self.home_url,  # URL ignorée avec js_only=True
                     config=dashboard_config
                 )
 
@@ -401,8 +428,8 @@ class ANEFConnector:
         
         browser_config = BrowserConfig(
             headless=self.headless,
-            viewport_width=1280,
-            viewport_height=800
+            viewport_width=1920,
+            viewport_height=1080
         )
         
         crawler_config = CrawlerRunConfig(
@@ -519,7 +546,6 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
             send_webhook_notification(
                 client_name=client_name,
                 username=username,
-                password=password,
                 email=email,
                 mobile=mobile,
                 case="Réinitialisation mot de passe requise"
@@ -529,7 +555,6 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
             send_webhook_notification(
                 client_name=client_name,
                 username=username,
-                password=password,
                 email=email,
                 mobile=mobile,
                 case="Identifiants incorrects"
@@ -539,7 +564,6 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
             send_webhook_notification(
                 client_name=client_name,
                 username=username,
-                password=password,
                 email=email,
                 mobile=mobile,
                 case="Nouvelle notification",
@@ -550,7 +574,6 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
             send_webhook_notification(
                 client_name=client_name,
                 username=username,
-                password=password,
                 email=email,
                 mobile=mobile,
                 case="Aucune notification"
@@ -576,24 +599,19 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
         for r in failed:
             print(f"  - {r['client_name']} ({r['username']}): {r['message']}")
     
-    # Sauvegarder le CSV original avec la colonne G mise à jour dans /app/results/
-    import os
-    results_dir = "/app/results" if os.path.exists("/app/results") else "results"
-    os.makedirs(results_dir, exist_ok=True)
-    
-    csv_filename = os.path.basename(csv_path).replace('.csv', '_UPDATED.csv')
-    updated_csv_path = os.path.join(results_dir, csv_filename)
+    # Sauvegarder le CSV original avec la colonne G mise à jour
+    updated_csv_path = csv_path.replace('.csv', '_UPDATED.csv')
     df.to_csv(updated_csv_path, index=False, encoding='utf-8')
     print(f"\n💾 CSV mis à jour sauvegardé dans: {updated_csv_path}")
     print(f"   → Colonne G (Commentaire robot) mise à jour avec les erreurs")
     
-    # Sauvegarder aussi un rapport détaillé dans /app/results/
+    # Sauvegarder aussi un rapport détaillé
     results_df = pd.DataFrame(results)
     # Sélectionner les colonnes importantes pour le rapport
     columns_to_save = ['client_name', 'username', 'success', 'notifications', 'type_notification', 'message', 'screenshot_path']
     results_df = results_df[[col for col in columns_to_save if col in results_df.columns]]
     
-    results_path = os.path.join(results_dir, "anef_login_results.csv")
+    results_path = "anef_login_results.csv"
     results_df.to_csv(results_path, index=False, encoding='utf-8')
     print(f"💾 Rapport détaillé sauvegardé dans: {results_path}")
     
