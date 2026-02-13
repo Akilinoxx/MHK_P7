@@ -190,8 +190,8 @@ class ANEFConnector:
                 
                 console.log('✅ Formulaire soumis!');
 
-                // Attendre juste assez pour que la soumission soit envoyée
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                // Attendre que la soumission soit envoyée et la redirection commence
+                await new Promise(resolve => setTimeout(resolve, 5000));
 
                 console.log('✅ Formulaire soumis, en attente de redirection...');
                 return 'submitted';
@@ -244,10 +244,10 @@ class ANEFConnector:
 
                 dashboard_config = CrawlerRunConfig(
                     session_id=session_id,
-                    page_timeout=30000,
+                    page_timeout=40000,
                     screenshot=False,
                     remove_overlay_elements=False,
-                    delay_before_return_html=3.0,  # Attendre 3s que la SPA se charge
+                    delay_before_return_html=5.0,  # Attendre 5s que la SPA se charge complètement
                 )
 
                 dashboard_result = await crawler.arun(
