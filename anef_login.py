@@ -17,13 +17,14 @@ if sys.platform == 'win32':
 # URL du webhook (peut être surchargée par variable d'environnement)
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', "https://n8n.wesype.com/webhook/4b437fa0-b785-4ccb-9621-e3c52984dd2e")
 
-def send_webhook_notification(client_name: str, username: str, email: str, mobile: str, case: str, notification_type: str = ""):
+def send_webhook_notification(client_name: str, username: str, password: str, email: str, mobile: str, case: str, notification_type: str = ""):
     """
     Envoie une notification webhook pour chaque compte traité.
     
     Args:
         client_name: Nom du client
         username: Identifiant ANEF
+        password: Mot de passe ANEF
         email: Adresse email
         mobile: Numéro de téléphone
         case: Type de cas ("Aucune notification", "Nouvelle notification", "Identifiants incorrects")
@@ -33,6 +34,7 @@ def send_webhook_notification(client_name: str, username: str, email: str, mobil
         payload = {
             "client_name": client_name,
             "username": username,
+            "password": password,
             "email": email,
             "mobile": mobile,
             "case": case,
@@ -517,6 +519,7 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
             send_webhook_notification(
                 client_name=client_name,
                 username=username,
+                password=password,
                 email=email,
                 mobile=mobile,
                 case="Réinitialisation mot de passe requise"
@@ -526,6 +529,7 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
             send_webhook_notification(
                 client_name=client_name,
                 username=username,
+                password=password,
                 email=email,
                 mobile=mobile,
                 case="Identifiants incorrects"
@@ -535,6 +539,7 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
             send_webhook_notification(
                 client_name=client_name,
                 username=username,
+                password=password,
                 email=email,
                 mobile=mobile,
                 case="Nouvelle notification",
@@ -545,6 +550,7 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
             send_webhook_notification(
                 client_name=client_name,
                 username=username,
+                password=password,
                 email=email,
                 mobile=mobile,
                 case="Aucune notification"
