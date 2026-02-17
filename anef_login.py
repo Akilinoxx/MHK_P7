@@ -48,6 +48,76 @@ def send_webhook_notification(client_name: str, username: str, email: str, mobil
     except Exception as e:
         print(f"  ❌ Erreur webhook: {e}")
 
+
+def send_summary_webhook(results: list, total_accounts: int):
+    """
+    Envoie un récapitulatif des statistiques via webhook à la fin de l'exécution.
+    
+    Args:
+        results: Liste des résultats de connexion
+        total_accounts: Nombre total de comptes traités
+    """
+    SUMMARY_WEBHOOK_URL = "https://n8n.wesype.com/webhook/f28ac52d-5af4-4ff2-82dd-2826557a2280"
+    
+    try:
+        # Calculer les statistiques
+        successful = [r for r in results if r['success']]
+        failed = [r for r in results if not r['success']]
+        
+        # Comptes accessibles avec notifications
+        with_notifications = [r for r in successful if r.get('notifications') == 'OUI']
+        without_notifications = [r for r in successful if r.get('notifications') == 'NON']
+        
+        # Compter les types de notifications
+        notification_types = {}
+        for r in with_notifications:
+            notif_type = r.get('type_notification', 'Non spécifié')
+            notification_types[notif_type] = notification_types.get(notif_type, 0) + 1
+        
+        # Calculer les pourcentages
+        total = len(results)
+        inaccessible_pct = (len(failed) / total * 100) if total > 0 else 0
+        accessible_no_notif_pct = (len(without_notifications) / total * 100) if total > 0 else 0
+        accessible_with_notif_pct = (len(with_notifications) / total * 100) if total > 0 else 0
+        
+        # Construire le payload
+        payload = {
+            "total_comptes": total,
+            "comptes_inaccessibles": {
+                "volume": len(failed),
+                "pourcentage": round(inaccessible_pct, 2)
+            },
+            "comptes_accessibles_sans_notification": {
+                "volume": len(without_notifications),
+                "pourcentage": round(accessible_no_notif_pct, 2)
+            },
+            "comptes_accessibles_avec_notification": {
+                "volume": len(with_notifications),
+                "pourcentage": round(accessible_with_notif_pct, 2)
+            },
+            "types_notifications": notification_types,
+            "details_echecs": [
+                {
+                    "client_name": r['client_name'],
+                    "username": r['username'],
+                    "message": r['message']
+                }
+                for r in failed
+            ]
+        }
+        
+        print("\n📊 Envoi du récapitulatif via webhook...")
+        response = requests.post(SUMMARY_WEBHOOK_URL, json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            print("✅ Récapitulatif envoyé avec succès!")
+        else:
+            print(f"⚠️ Erreur lors de l'envoi du récapitulatif: {response.status_code}")
+            print(f"   Réponse: {response.text[:200]}")
+            
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi du récapitulatif: {e}")
+
 class ANEFConnector:
     """
     Connecteur pour la plateforme ANEF utilisant Crawl4AI.
@@ -623,6 +693,9 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
         print(f"\n🔔 Notifications: {notif_oui} OUI, {notif_non} NON")
         if update_pwd > 0:
             print(f"⚠️  UPDATE_PASSWORD requis: {update_pwd}")
+    
+    # Envoyer le récapitulatif via webhook
+    send_summary_webhook(results, len(results))
     
     return results
 
