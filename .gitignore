@@ -27,6 +27,9 @@ wheels/
 *_UPDATED.csv
 *_FIXED.csv
 anef_login_results.csv
+TRUE CSV MHK*.csv
+[MHK] New Logs ANEF*.csv
+MHK_ANEF_MERGED.csv
 
 # Screenshots
 screenshots/

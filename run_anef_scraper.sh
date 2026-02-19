@@ -25,7 +25,7 @@ echo "🚀 Lancement du container..."
 sudo docker run -d \
   --name "$CONTAINER_NAME" \
   --env-file .env \
-  -v "$(pwd)/TRUE CSV MHK - MHK_Avocats_Login_Cleaned - MHK - Feuille 1 (1)_FIXED_UPDATED.csv:/app/data/input.csv:ro" \
+  -v "$(pwd)/MHK_ANEF_MERGED.csv:/app/data/input.csv:ro" \
   -v "$(pwd)/results:/app/results" \
   "$IMAGE_NAME"
 
