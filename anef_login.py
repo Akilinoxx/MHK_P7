@@ -49,6 +49,78 @@ def send_webhook_notification(client_name: str, username: str, email: str, mobil
         print(f"  ❌ Erreur webhook: {e}")
 
 
+def send_csv_webhook(results: list):
+    """
+    Envoie 2 fichiers CSV via webhook :
+    - Comptes avec UPDATE_PASSWORD requis
+    - Comptes avec mot de passe invalide
+    
+    Args:
+        results: Liste des résultats de connexion
+    """
+    CSV_WEBHOOK_URL = "https://n8n.wesype.com/webhook/772ef1d7-73e7-4d23-b2cf-391deb8f1db1"
+    
+    try:
+        import io
+        import base64
+        
+        # Filtrer les comptes UPDATE_PASSWORD
+        update_password_accounts = [
+            r for r in results 
+            if r.get('notifications') == 'UPDATE_PASSWORD' or 'UPDATE_PASSWORD' in r.get('message', '')
+        ]
+        
+        # Filtrer les comptes avec mot de passe invalide
+        invalid_password_accounts = [
+            r for r in results 
+            if not r['success'] and 'Identifiants incorrects' in r.get('message', '')
+        ]
+        
+        print(f"\n📄 Préparation des CSV...")
+        print(f"   - Comptes UPDATE_PASSWORD: {len(update_password_accounts)}")
+        print(f"   - Comptes mot de passe invalide: {len(invalid_password_accounts)}")
+        
+        # Créer les CSV en mémoire
+        csv_update_password = io.StringIO()
+        csv_invalid_password = io.StringIO()
+        
+        # CSV UPDATE_PASSWORD
+        if update_password_accounts:
+            csv_update_password.write("Nom du client,Identifiant,Email,Mobile,Message\n")
+            for r in update_password_accounts:
+                csv_update_password.write(f"{r['client_name']},{r['username']},{r.get('email', '')},{r.get('mobile', '')},{r['message']}\n")
+        
+        # CSV mot de passe invalide
+        if invalid_password_accounts:
+            csv_invalid_password.write("Nom du client,Identifiant,Email,Mobile,Message\n")
+            for r in invalid_password_accounts:
+                csv_invalid_password.write(f"{r['client_name']},{r['username']},{r.get('email', '')},{r.get('mobile', '')},{r['message']}\n")
+        
+        # Préparer le payload avec les CSV encodés en base64
+        payload = {
+            "update_password_csv": base64.b64encode(csv_update_password.getvalue().encode('utf-8')).decode('utf-8'),
+            "invalid_password_csv": base64.b64encode(csv_invalid_password.getvalue().encode('utf-8')).decode('utf-8'),
+            "update_password_count": len(update_password_accounts),
+            "invalid_password_count": len(invalid_password_accounts)
+        }
+        
+        print(f"\n📤 Envoi des CSV via webhook...")
+        print(f"   URL: {CSV_WEBHOOK_URL}")
+        
+        response = requests.post(CSV_WEBHOOK_URL, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            print("✅ CSV envoyés avec succès!")
+        else:
+            print(f"⚠️ Erreur lors de l'envoi des CSV: {response.status_code}")
+            print(f"   Réponse: {response.text[:200]}")
+            
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi des CSV: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def send_summary_webhook(results: list, total_accounts: int):
     """
     Envoie un récapitulatif des statistiques via webhook à la fin de l'exécution.
@@ -107,6 +179,9 @@ def send_summary_webhook(results: list, total_accounts: int):
         }
         
         print("\n📊 Envoi du récapitulatif via webhook...")
+        print(f"   URL: {SUMMARY_WEBHOOK_URL}")
+        print(f"   Payload: {json.dumps(payload, indent=2, ensure_ascii=False)[:500]}...")
+        
         response = requests.post(SUMMARY_WEBHOOK_URL, json=payload, timeout=10)
         
         if response.status_code == 200:
@@ -117,6 +192,8 @@ def send_summary_webhook(results: list, total_accounts: int):
             
     except Exception as e:
         print(f"❌ Erreur lors de l'envoi du récapitulatif: {e}")
+        import traceback
+        traceback.print_exc()
 
 class ANEFConnector:
     """
@@ -696,6 +773,9 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
     
     # Envoyer le récapitulatif via webhook
     send_summary_webhook(results, len(results))
+    
+    # Envoyer les CSV des comptes problématiques
+    send_csv_webhook(results)
     
     return results
 
