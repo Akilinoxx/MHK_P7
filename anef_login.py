@@ -746,19 +746,24 @@ async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurr
         for r in failed:
             print(f"  - {r['client_name']} ({r['username']}): {r['message']}")
     
-    # Sauvegarder le CSV original avec la colonne G mise à jour
-    updated_csv_path = csv_path.replace('.csv', '_UPDATED.csv')
+    # Sauvegarder le CSV original avec la colonne G mise à jour dans /app/results/
+    import os
+    results_dir = "/app/results" if os.path.exists("/app/results") else "results"
+    os.makedirs(results_dir, exist_ok=True)
+    
+    csv_filename = os.path.basename(csv_path).replace('.csv', '_UPDATED.csv')
+    updated_csv_path = os.path.join(results_dir, csv_filename)
     df.to_csv(updated_csv_path, index=False, encoding='utf-8')
     print(f"\n💾 CSV mis à jour sauvegardé dans: {updated_csv_path}")
     print(f"   → Colonne G (Commentaire robot) mise à jour avec les erreurs")
     
-    # Sauvegarder aussi un rapport détaillé
+    # Sauvegarder aussi un rapport détaillé dans /app/results/
     results_df = pd.DataFrame(results)
     # Sélectionner les colonnes importantes pour le rapport
     columns_to_save = ['client_name', 'username', 'success', 'notifications', 'type_notification', 'message', 'screenshot_path']
     results_df = results_df[[col for col in columns_to_save if col in results_df.columns]]
     
-    results_path = "anef_login_results.csv"
+    results_path = os.path.join(results_dir, "anef_login_results.csv")
     results_df.to_csv(results_path, index=False, encoding='utf-8')
     print(f"💾 Rapport détaillé sauvegardé dans: {results_path}")
     
