@@ -2,10 +2,13 @@
 import asyncio
 import json
 import sys
+import os
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from typing import Optional, Dict
 import pandas as pd
 import requests
+import psycopg2
+from psycopg2 import sql
 
 # Configurer l'encodage UTF-8 pour la console Windows
 if sys.platform == 'win32':
@@ -15,6 +18,79 @@ if sys.platform == 'win32':
 
 # URL du webhook
 WEBHOOK_URL = "https://n8n.wesype.com/webhook/4b437fa0-b785-4ccb-9621-e3c52984dd2e"
+
+# URL de la base de données PostgreSQL
+DATABASE_URL = os.getenv('DATABASE_URL', "postgresql://postgres:QfGHYQavuwnCcNSaLQCAdxVGnCXklNyi@mainline.proxy.rlwy.net:56424/railway")
+
+def get_db_connection():
+    """Créer une connexion à PostgreSQL"""
+    return psycopg2.connect(DATABASE_URL)
+
+def fetch_accounts_from_db(limit: int = None):
+    """
+    Récupérer les comptes depuis PostgreSQL
+    
+    Args:
+        limit: Nombre maximum de comptes à récupérer (None = tous)
+    
+    Returns:
+        Liste de dictionnaires contenant les informations des comptes
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    query = """
+    SELECT id, client_name, identifiant, mot_de_passe, email, mobile, commentaire_robot
+    FROM anef_accounts
+    WHERE identifiant IS NOT NULL AND mot_de_passe IS NOT NULL
+    ORDER BY id
+    """
+    
+    if limit:
+        query += f" LIMIT {limit}"
+    
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    
+    accounts = []
+    for row in rows:
+        accounts.append({
+            'id': row[0],
+            'client_name': row[1] or '',
+            'username': row[2] or '',
+            'password': row[3] or '',
+            'email': row[4] or '',
+            'mobile': row[5] or '',
+            'commentaire_robot': row[6] or ''
+        })
+    
+    cursor.close()
+    conn.close()
+    
+    return accounts
+
+def update_account_comment(account_id: int, comment: str):
+    """
+    Mettre à jour le commentaire robot pour un compte dans PostgreSQL
+    
+    Args:
+        account_id: ID du compte dans la base de données
+        comment: Nouveau commentaire à enregistrer
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "UPDATE anef_accounts SET commentaire_robot = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+            (comment, account_id)
+        )
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Erreur lors de la mise à jour du commentaire: {e}")
 
 def send_webhook_notification(client_name: str, username: str, email: str, mobile: str, case: str, notification_type: str = ""):
     """
@@ -628,6 +704,130 @@ async def test_single_login(username: str, password: str, headless: bool = False
     return result
 
 
+async def batch_login_from_db(headless: bool = True, limit: int = None):
+    """
+    Connexion en batch à partir de PostgreSQL (traitement séquentiel).
+    Mettre à jour le commentaire_robot dans la base de données en cas d'erreur.
+    
+    Args:
+        headless: Mode sans interface graphique
+        limit: Nombre maximum de comptes à traiter (None = tous)
+    """
+    # Récupérer les comptes depuis PostgreSQL
+    print("📊 Récupération des comptes depuis PostgreSQL...")
+    accounts = fetch_accounts_from_db(limit=limit)
+    
+    print(f"📊 {len(accounts)} comptes à traiter")
+    print(f"🚀 Démarrage des connexions (traitement séquentiel)...\n")
+    
+    connector = ANEFConnector(headless=headless)
+    results = []
+    
+    # Traiter compte par compte
+    for idx, account in enumerate(accounts):
+        account_id = account['id']
+        username = account['username']
+        password = account['password']
+        client_name = account['client_name']
+        email = account['email']
+        mobile = account['mobile']
+        
+        print(f"\n[{idx+1}/{len(accounts)}] Traitement de {client_name}...")
+        
+        session_id = f"anef_session_{account_id}"
+        result = await connector.login(username, password, session_id)
+        
+        # Ajouter les infos du client
+        result['client_name'] = client_name
+        result['account_id'] = account_id
+        result['email'] = email
+        result['mobile'] = mobile
+        
+        # Mettre à jour le commentaire dans PostgreSQL en cas d'erreur
+        if not result['success']:
+            update_account_comment(account_id, result['message'])
+        else:
+            # Effacer le commentaire si la connexion réussit
+            update_account_comment(account_id, '')
+        
+        results.append(result)
+        
+        # Envoyer le webhook selon le cas
+        if result.get('notifications') == 'UPDATE_PASSWORD':
+            # CAS 4: Réinitialisation du mot de passe requise
+            send_webhook_notification(
+                client_name=client_name,
+                username=username,
+                email=email,
+                mobile=mobile,
+                case="Réinitialisation mot de passe requise"
+            )
+        elif not result['success']:
+            # CAS 3: Identifiants incorrects
+            send_webhook_notification(
+                client_name=client_name,
+                username=username,
+                email=email,
+                mobile=mobile,
+                case="Identifiants incorrects"
+            )
+        elif result.get('notifications') == 'OUI':
+            # CAS 2: Nouvelle notification
+            send_webhook_notification(
+                client_name=client_name,
+                username=username,
+                email=email,
+                mobile=mobile,
+                case="Nouvelle notification",
+                notification_type=result.get('type_notification', '')
+            )
+        elif result.get('notifications') == 'NON':
+            # CAS 1: Aucune notification
+            send_webhook_notification(
+                client_name=client_name,
+                username=username,
+                email=email,
+                mobile=mobile,
+                case="Aucune notification"
+            )
+    
+    # Résumé des résultats
+    print("\n" + "="*60)
+    print("RÉSUMÉ DES CONNEXIONS")
+    print("="*60)
+    
+    successful = [r for r in results if r['success']]
+    failed = [r for r in results if not r['success']]
+    
+    print(f"✅ Réussies: {len(successful)}/{len(results)}")
+    print(f"❌ Échouées: {len(failed)}/{len(results)}")
+    
+    if failed:
+        print("\n❌ Échecs:")
+        for r in failed:
+            print(f"  - {r['client_name']} ({r.get('username', 'N/A')}): {r['message']}")
+    
+    # Créer un DataFrame pour les statistiques
+    results_df = pd.DataFrame(results)
+    
+    # Afficher un résumé des notifications
+    if 'notifications' in results_df.columns:
+        notif_oui = len(results_df[results_df['notifications'] == 'OUI'])
+        notif_non = len(results_df[results_df['notifications'] == 'NON'])
+        update_pwd = len(results_df[results_df['notifications'] == 'UPDATE_PASSWORD'])
+        print(f"\n🔔 Notifications: {notif_oui} OUI, {notif_non} NON")
+        if update_pwd > 0:
+            print(f"⚠️  UPDATE_PASSWORD requis: {update_pwd}")
+    
+    # Envoyer le récapitulatif via webhook
+    send_summary_webhook(results, len(results))
+    
+    # Envoyer les CSV des comptes problématiques
+    send_csv_webhook(results)
+    
+    return results
+
+
 async def batch_login_from_csv(csv_path: str, headless: bool = True, max_concurrent: int = 1, limit: int = None):
     """
     Connexion en batch à partir du fichier CSV nettoyé (traitement séquentiel).
@@ -799,14 +999,8 @@ if __name__ == "__main__":
             print("Usage: python anef_login.py <username> <password>")
             print("   ou: python anef_login.py  (pour traiter le CSV)")
     else:
-        # Mode batch depuis le CSV
-        # Utiliser le chemin Docker si le fichier existe, sinon utiliser le chemin local
-        import os
-        docker_csv_path = "/app/data/input.csv"
-        local_csv_path = r"C:\Users\Antoi\Desktop\ProjetAnef\MHK_ANEF_MERGED.csv"
-        
-        csv_path = docker_csv_path if os.path.exists(docker_csv_path) else local_csv_path
-        print(f"📁 Mode batch - Traitement du CSV: {csv_path}")
+        # Mode batch depuis PostgreSQL
+        print(f"📁 Mode batch - Traitement depuis PostgreSQL")
         
         # Vérifier si on est en mode Docker (pas de TTY)
         is_docker = not sys.stdin.isatty()
@@ -830,7 +1024,7 @@ if __name__ == "__main__":
             print(f"📊 Comptes à traiter: {limit if limit else 'TOUS'}")
             print(f"🖥️ Mode navigateur: {'Headless' if headless else 'Visible (VNC)'}")
             print(f"🚀 Démarrage automatique...\n")
-            asyncio.run(batch_login_from_csv(csv_path, headless=headless, max_concurrent=1, limit=limit))
+            asyncio.run(batch_login_from_db(headless=headless, limit=limit))
         else:
             # Mode interactif : demander à l'utilisateur
             limit_input = input("\n🔢 Combien de comptes traiter? (défaut: tous, entrez un nombre pour limiter): ")
@@ -846,6 +1040,6 @@ if __name__ == "__main__":
             
             response = input(f"\n⚠️ Lancer les connexions pour {limit if limit else 'TOUS les'} comptes? (oui/non): ")
             if response.lower() in ['oui', 'o', 'yes', 'y']:
-                asyncio.run(batch_login_from_csv(csv_path, headless=True, max_concurrent=1, limit=limit))
+                asyncio.run(batch_login_from_db(headless=True, limit=limit))
             else:
                 print("❌ Opération annulée")
