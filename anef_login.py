@@ -722,6 +722,8 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
     
     connector = ANEFConnector(headless=headless)
     results = []
+    browser_restart_count = 0
+    max_retries = 3
     
     # Traiter compte par compte
     for idx, account in enumerate(accounts):
@@ -735,7 +737,57 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
         print(f"\n[{idx+1}/{len(accounts)}] Traitement de {client_name}...")
         
         session_id = f"anef_session_{account_id}"
-        result = await connector.login(username, password, session_id)
+        
+        # Gestion d'erreur avec retry en cas de crash du navigateur
+        retry_count = 0
+        result = None
+        
+        while retry_count < max_retries:
+            try:
+                result = await connector.login(username, password, session_id)
+                break
+            except Exception as e:
+                retry_count += 1
+                error_msg = str(e)
+                
+                if "Target page, context or browser has been closed" in error_msg or "SIGSEGV" in error_msg:
+                    browser_restart_count += 1
+                    print(f"⚠️  Crash du navigateur détecté (#{browser_restart_count})")
+                    print(f"🔄 Tentative {retry_count}/{max_retries} - Relance du navigateur...")
+                    
+                    # Recréer le connector
+                    try:
+                        del connector
+                    except:
+                        pass
+                    
+                    await asyncio.sleep(3)
+                    connector = ANEFConnector(headless=headless)
+                    
+                    if retry_count >= max_retries:
+                        result = {
+                            'success': False,
+                            'message': f'Erreur navigateur après {max_retries} tentatives: {error_msg[:100]}',
+                            'username': username,
+                            'notifications': None
+                        }
+                else:
+                    print(f"❌ Erreur inattendue: {error_msg[:200]}")
+                    result = {
+                        'success': False,
+                        'message': f'Erreur: {error_msg[:100]}',
+                        'username': username,
+                        'notifications': None
+                    }
+                    break
+        
+        if result is None:
+            result = {
+                'success': False,
+                'message': 'Erreur inconnue lors du traitement',
+                'username': username,
+                'notifications': None
+            }
         
         # Ajouter les infos du client
         result['client_name'] = client_name
@@ -751,6 +803,9 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
             update_account_comment(account_id, '')
         
         results.append(result)
+        
+        # Pause de 2 secondes entre chaque compte pour éviter la surcharge
+        await asyncio.sleep(2)
         
         # Envoyer le webhook selon le cas
         if result.get('notifications') == 'UPDATE_PASSWORD':
