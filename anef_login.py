@@ -40,7 +40,7 @@ def fetch_accounts_from_db(limit: int = None):
     cursor = conn.cursor()
     
     query = """
-    SELECT id, client_name, identifiant, mot_de_passe, email, mobile, commentaire_robot
+    SELECT id, client_name, identifiant, mot_de_passe, email, mobile, commentaire_robot, crm_id
     FROM anef_accounts
     WHERE identifiant IS NOT NULL AND mot_de_passe IS NOT NULL
     ORDER BY id
@@ -61,7 +61,8 @@ def fetch_accounts_from_db(limit: int = None):
             'password': row[3] or '',
             'email': row[4] or '',
             'mobile': row[5] or '',
-            'commentaire_robot': row[6] or ''
+            'commentaire_robot': row[6] or '',
+            'crm_id': row[7] or ''
         })
     
     cursor.close()
@@ -92,7 +93,7 @@ def update_account_comment(account_id: int, comment: str):
     except Exception as e:
         print(f"⚠️  Erreur lors de la mise à jour du commentaire: {e}")
 
-def send_webhook_notification(client_name: str, username: str, email: str, mobile: str, case: str, notification_type: str = ""):
+def send_webhook_notification(client_name: str, username: str, email: str, mobile: str, case: str, notification_type: str = "", crm_id: str = ""):
     """
     Envoie une notification webhook pour chaque compte traité.
     
@@ -103,6 +104,7 @@ def send_webhook_notification(client_name: str, username: str, email: str, mobil
         mobile: Numéro de téléphone
         case: Type de cas ("Aucune notification", "Nouvelle notification", "Identifiants incorrects")
         notification_type: Type de notification si applicable
+        crm_id: ID CRM Zoho du client
     """
     try:
         payload = {
@@ -111,7 +113,8 @@ def send_webhook_notification(client_name: str, username: str, email: str, mobil
             "email": email,
             "mobile": mobile,
             "case": case,
-            "notification_type": notification_type
+            "notification_type": notification_type,
+            "crm_id": crm_id
         }
         
         response = requests.post(WEBHOOK_URL, json=payload, timeout=10)
@@ -162,15 +165,15 @@ def send_csv_webhook(results: list):
         
         # CSV UPDATE_PASSWORD
         if update_password_accounts:
-            csv_update_password.write("Nom du client,Identifiant,Email,Mobile,Message\n")
+            csv_update_password.write("CRM ID,Nom du client,Identifiant,Email,Mobile,Message\n")
             for r in update_password_accounts:
-                csv_update_password.write(f"{r['client_name']},{r['username']},{r.get('email', '')},{r.get('mobile', '')},{r['message']}\n")
+                csv_update_password.write(f"{r.get('crm_id', '')},{r['client_name']},{r['username']},{r.get('email', '')},{r.get('mobile', '')},{r['message']}\n")
         
         # CSV mot de passe invalide
         if invalid_password_accounts:
-            csv_invalid_password.write("Nom du client,Identifiant,Email,Mobile,Message\n")
+            csv_invalid_password.write("CRM ID,Nom du client,Identifiant,Email,Mobile,Message\n")
             for r in invalid_password_accounts:
-                csv_invalid_password.write(f"{r['client_name']},{r['username']},{r.get('email', '')},{r.get('mobile', '')},{r['message']}\n")
+                csv_invalid_password.write(f"{r.get('crm_id', '')},{r['client_name']},{r['username']},{r.get('email', '')},{r.get('mobile', '')},{r['message']}\n")
         
         # Préparer le payload avec les CSV encodés en base64
         payload = {
@@ -733,6 +736,7 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
         client_name = account['client_name']
         email = account['email']
         mobile = account['mobile']
+        crm_id = account['crm_id']
         
         print(f"\n[{idx+1}/{len(accounts)}] Traitement de {client_name}...")
         
@@ -794,6 +798,7 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
         result['account_id'] = account_id
         result['email'] = email
         result['mobile'] = mobile
+        result['crm_id'] = crm_id
         
         # Mettre à jour le commentaire dans PostgreSQL en cas d'erreur
         if not result['success']:
@@ -815,7 +820,8 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
                 username=username,
                 email=email,
                 mobile=mobile,
-                case="Réinitialisation mot de passe requise"
+                case="Réinitialisation mot de passe requise",
+                crm_id=crm_id
             )
         elif not result['success']:
             # CAS 3: Identifiants incorrects
@@ -824,7 +830,8 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
                 username=username,
                 email=email,
                 mobile=mobile,
-                case="Identifiants incorrects"
+                case="Identifiants incorrects",
+                crm_id=crm_id
             )
         elif result.get('notifications') == 'OUI':
             # CAS 2: Nouvelle notification
@@ -834,7 +841,8 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
                 email=email,
                 mobile=mobile,
                 case="Nouvelle notification",
-                notification_type=result.get('type_notification', '')
+                notification_type=result.get('type_notification', ''),
+                crm_id=crm_id
             )
         elif result.get('notifications') == 'NON':
             # CAS 1: Aucune notification
@@ -843,7 +851,8 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
                 username=username,
                 email=email,
                 mobile=mobile,
-                case="Aucune notification"
+                case="Aucune notification",
+                crm_id=crm_id
             )
     
     # Résumé des résultats
