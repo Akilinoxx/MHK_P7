@@ -800,6 +800,21 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
         result['mobile'] = mobile
         result['crm_id'] = crm_id
         
+        # Afficher le résultat de la connexion avec les notifications
+        if result['success']:
+            if result.get('notifications') == 'OUI':
+                print(f"  🔔 NOUVELLE NOTIFICATION trouvée!")
+                print(f"     Type: {result.get('type_notification', 'Non spécifié')}")
+                print(f"     Message: {result.get('message', '')}")
+            elif result.get('notifications') == 'UPDATE_PASSWORD':
+                print(f"  🔑 Réinitialisation mot de passe requise")
+            elif result.get('notifications') == 'NON':
+                print(f"  ✅ Aucune notification")
+            else:
+                print(f"  ℹ️  Statut: {result.get('notifications', 'Inconnu')}")
+        else:
+            print(f"  ❌ Échec: {result.get('message', 'Erreur inconnue')[:100]}")
+        
         # Mettre à jour le commentaire dans PostgreSQL en cas d'erreur
         if not result['success']:
             update_account_comment(account_id, result['message'])
@@ -882,6 +897,18 @@ async def batch_login_from_db(headless: bool = True, limit: int = None):
         print(f"\n🔔 Notifications: {notif_oui} OUI, {notif_non} NON")
         if update_pwd > 0:
             print(f"⚠️  UPDATE_PASSWORD requis: {update_pwd}")
+        
+        # Afficher la liste détaillée des notifications trouvées
+        if notif_oui > 0:
+            print(f"\n📋 LISTE DES {notif_oui} NOTIFICATIONS TROUVÉES:")
+            notifications_found = [r for r in results if r.get('notifications') == 'OUI']
+            for idx, r in enumerate(notifications_found, 1):
+                print(f"  {idx}. {r['client_name']} ({r.get('username', 'N/A')})")
+                print(f"     Type: {r.get('type_notification', 'Non spécifié')}")
+                print(f"     CRM ID: {r.get('crm_id', 'N/A')}")
+                if r.get('message'):
+                    print(f"     Message: {r.get('message', '')[:100]}")
+                print()
     
     # Envoyer le récapitulatif via webhook
     send_summary_webhook(results, len(results))
